@@ -74,7 +74,7 @@ Replace `make` with `mingw32-make` if required by your Windows toolchain.
   </tr>
   <tr>
     <td align="center"><img src="assets/airfoil-smoke.png" alt="Smoke streamlines around an airfoil"><br><sub>Airfoil - smoke transport</sub></td>
-    <td align="center"><img src="assets/venturi-speed.png" alt="Speed field when fluid passing a Venturi passage"><br><sub>Venturi passage - speed field</sub></td>
+    <td align="center"><img src="assets/ellipse-speed.png" alt="Speed field when fluid passing around an ellipse"><br><sub>Ellipse - speed field</sub></td>
   </tr>
   <tr>
     <td align="center"><img src="assets/cylinder-array-vorticity.png" alt="Interacting wakes in a staggered cylinder array"><br><sub>Cylinder array - interacting wakes</sub></td>
