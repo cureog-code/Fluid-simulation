@@ -121,7 +121,7 @@ def main():
             'Display paused' if view['paused'] else 'Running'
         )
         ax.set_title(
-            f'{args.scene} · {labels[view['mode']]} · frame {view['index']}/{args.frames} · {status}\n'
+            f"{args.scene} · {labels[view['mode']]} · frame {view['index']}/{args.frames} · {status}\n"
             '1: smoke   2: vorticity   3: speed   Space: pause display   Q: quit',
             color='white', fontsize=12,
         )

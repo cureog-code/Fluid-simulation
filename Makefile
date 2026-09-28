@@ -4,7 +4,7 @@ CFLAGS = -O3 -std=c11 -Wall -Wextra -Wpedantic
 LDLIBS = -lm
 TARGET = fluid.exe
 FRAMES = 5000
-SCENE = ellipse
+SCENE = nozzle
 
 .PHONY: all run deps clean help
 
