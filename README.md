@@ -1,4 +1,4 @@
-# 2D Fluid Simulation
+# 2D Fluid Simulation (not up-to-date with the actual repo script)
 A two-dimensional incompressible fluid simulator written in C, with a Python viewer for real-time visualization. The project simulates flow through a wind tunnel. It can display smoke transport, vorticity magnitude, and velocity magnitude around several obstacle geometries. I was inspired by a [Sebastian Lague's Youtube video](https://youtu.be/Q78wvrQ9xsU?si=5V0-nEyfrvVwteIh).
 
 <p align="center">
