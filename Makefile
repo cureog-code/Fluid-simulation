@@ -1,10 +1,10 @@
 CC = gcc
 PYTHON = python
-CFLAGS = -O3 -std=c11 -Wall -Wextra -Wpedantic
+CFLAGS = -O3 -std=c11 -Wall -Wextra -Wpedantic -march=native
 LDLIBS = -lm
 TARGET = fluid.exe
-FRAMES = 5000
-SCENE = nozzle
+FRAMES = 20000
+SCENE = cylinder
 
 .PHONY: all run deps clean help
 

@@ -3,6 +3,7 @@ import queue
 import struct
 import subprocess
 import threading
+import time
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -26,7 +27,7 @@ def main():
     parser = argparse.ArgumentParser(description='View the smoke simulation from the C program')
     parser.add_argument('--exe', type=Path, default=Path(__file__).with_name('fluid.exe'))
     parser.add_argument('--scene', choices=VALID_OBSTACLES, default='cylinder')
-    parser.add_argument('--frames', type=int, default=5000)
+    parser.add_argument('--frames', type=int, default=20000)
     args = parser.parse_args()
     if args.frames <= 0:
         parser.error('--frames must be a positive integer')
@@ -44,7 +45,7 @@ def main():
         rc = process.wait()
         raise RuntimeError(f'Could not read header from C (exit code: {rc})')
     nx, ny, channels = struct.unpack('=III', header[4:])
-    if channels != 3 or not (1 <= nx <= 2048 and 1 <= ny <= 2048):
+    if channels != 4 or not (1 <= nx <= 2048 and 1 <= ny <= 2048):
         process.terminate()
         raise RuntimeError(f'Invalid header: {nx}x{ny}x{channels}')
 
@@ -58,7 +59,7 @@ def main():
                 raw = read_exact(process.stdout, frame_bytes)
                 if raw is None:
                     break
-                frame = np.frombuffer(raw, dtype=np.float32).reshape(3, ny, nx).copy()
+                frame = np.frombuffer(raw, dtype=np.float32).reshape(channels, ny, nx).copy()
                 state['received'] += 1
                 if inbox.full():
                     try:
@@ -79,9 +80,9 @@ def main():
     worker = threading.Thread(target=receive, daemon=True)
     worker.start()
 
-    smoke_map = LinearSegmentedColormap.from_list('smoke', [(0, '#08101d'), (0.2, '#19365d'),
-                                                (0.55, '#58a9c0'), (1, '#fff4d1')]).copy()
-    vortex_map = plt.colormaps['RdBu_r'].copy()  # Weak: blue; strong: red
+    smoke_map = LinearSegmentedColormap.from_list('smoke', [(0, '#08101d'), (0.2, '#19365d'), (0.55, '#58a9c0'), (1, '#fff4d1')]).copy()
+    # frame[1] = dv/dx - du/dy: negative is clockwise, positive is counterclockwise.
+    vortex_map = plt.colormaps['RdBu'].copy()
     speed_map = plt.colormaps['magma'].copy()
     for color_map in (smoke_map, vortex_map, speed_map):
         color_map.set_bad('#343434')  # Solid cells sent from C have dye=-1
@@ -99,19 +100,65 @@ def main():
         np.zeros((ny, nx)), origin='lower', extent=(0, nx, 0, ny),
         interpolation='bilinear', cmap=smoke_map, vmin=0, vmax=0.9,
     )
-    view = {'mode': 0, 'paused': False, 'index': 0, 'data': None}
+
+    vector_spacing = max(6, min(nx, ny) // 20)
+    vector_i = np.arange(vector_spacing // 2, nx, vector_spacing)
+    vector_j = np.arange(vector_spacing // 2, ny, vector_spacing)
+    vector_x, vector_y = np.meshgrid(vector_i + 0.5, vector_j + 0.5)
+    vector_zeros = np.zeros_like(vector_x, dtype=np.float32)
+    velocity_arrows = ax.quiver(vector_x, vector_y, vector_zeros, vector_zeros, color='white', angles='xy', scale_units='xy', scale=1.0, width=0.0022, headwidth=3.2, headlength=4.2, pivot='mid', zorder=3)
+    velocity_arrows.set_visible(False)
+
+    view = {
+        'mode': 0,
+        'paused': False,
+        'index': 0,
+        'data': None,
+        'fps_t': time.perf_counter(),
+        'fps_received': 0,
+        'fps_drawn': 0,
+        'sim_fps': 0,
+        'view_fps': 0,        
+    }
     def draw():
         data = view['data']
-        labels = ('smoke', 'vorticity magnitude |ω|', 'speed |v|')
+        labels = ('smoke', 'vorticity', 'velocity field')
         if data is not None:
-            # C marks every obstacle with dye=-1. Do not draw any additional fixed shapes
             solid = data[0] < 0
             if view['mode'] == 0:
                 values, color_map, limits = data[0], smoke_map, (0, 0.9)
+                velocity_arrows.set_visible(False)
             elif view['mode'] == 1:
-                values, color_map, limits = np.abs(data[1]), vortex_map, (0, 0.22)
+                values, color_map, limits = data[1], vortex_map, (-0.22, 0.22)
+                velocity_arrows.set_visible(False)
             else:
-                values, color_map, limits = data[2], speed_map, (0, 2.2)
+                ux = data[2]
+                vy = data[3]
+                values = np.hypot(ux, vy)
+                fluid_speed = values[~solid]
+                speed_limit = max(
+                    float(np.percentile(fluid_speed, 99.0)) if fluid_speed.size else 1.0,
+                    1.0e-6,
+                )
+                color_map, limits = speed_map, (0, speed_limit)
+
+                sampled_ux = ux[np.ix_(vector_j, vector_i)]
+                sampled_vy = vy[np.ix_(vector_j, vector_i)]
+                sampled_speed = np.hypot(sampled_ux, sampled_vy)
+                sampled_solid = solid[np.ix_(vector_j, vector_i)]
+
+                maximum_arrow_length = 0.72 * vector_spacing
+                arrow_length = maximum_arrow_length * np.clip(
+                    sampled_speed / speed_limit, 0.0, 1.0
+                )
+                display_u = np.zeros_like(sampled_ux)
+                display_v = np.zeros_like(sampled_vy)
+                moving = sampled_speed > 1.0e-8
+                display_u[moving] = (sampled_ux[moving] / sampled_speed[moving] * arrow_length[moving])
+                display_v[moving] = (sampled_vy[moving] / sampled_speed[moving] * arrow_length[moving])
+
+                velocity_arrows.set_UVC(np.ma.array(display_u, mask=sampled_solid), np.ma.array(display_v, mask=sampled_solid))
+                velocity_arrows.set_visible(True)
             image.set_data(np.ma.array(values, mask=solid))
             image.set_cmap(color_map)
             image.set_clim(*limits)
@@ -121,11 +168,21 @@ def main():
             'Display paused' if view['paused'] else 'Running'
         )
         ax.set_title(
-            f"{args.scene} · {labels[view['mode']]} · frame {view['index']}/{args.frames} · {status}\n"
-            '1: smoke   2: vorticity   3: speed   Space: pause display   Q: quit',
+            f"{args.scene} | {labels[view['mode']]} | frame {view['index']}/{args.frames} | "
+            f"sim {view['sim_fps']:.1f} fps | view {view['view_fps']:.1f} fps | {status}\n"
+            '1: smoke   2: vorticity   3: velocity field   Space: pause display   Q: quit',
             color='white', fontsize=12,
         )
     def animate(_):
+        now = time.perf_counter()
+        view['fps_drawn'] += 1
+        elapsed = now - view['fps_t']
+        if elapsed >= 0.5:
+            view['sim_fps'] = (state['received'] - view['fps_received']) / elapsed
+            view['view_fps'] = view['fps_drawn'] / elapsed
+            view['fps_t'] = now
+            view['fps_received'] = state['received']
+            view['fps_drawn'] = 0
         if not view['paused']:
             latest = None
             while True:
@@ -136,7 +193,7 @@ def main():
             if latest is not None:
                 view['index'], view['data'] = latest
         draw()
-        return (image,)
+        return (image, velocity_arrows)
     def on_key(event):
         if event.key in ('q', 'escape'):
             plt.close(fig)
@@ -152,7 +209,7 @@ def main():
         process.stdout.close()
     fig.canvas.mpl_connect('key_press_event', on_key)
     fig.canvas.mpl_connect('close_event', on_close)
-    animation = FuncAnimation(fig, animate, interval=35, blit=False, cache_frame_data=False)
+    animation = FuncAnimation(fig, animate, interval=16, blit=False, cache_frame_data=False)
     try:
         plt.show()
     finally:
